@@ -1,0 +1,216 @@
+env_id: AdaptiveTutor-v1
+version: "1.0.0"
+description: >
+  A real-world adaptive student tutoring environment that simulates a student
+  learning 10 high-school math concepts using Bayesian Knowledge Tracing (BKT).
+  An AI agent acts as a tutor, selecting which concept and difficulty to present
+  at each step. The student's hidden mastery evolves probabilistically; the agent
+  must infer it from observable responses and guide the student efficiently.
+
+domain: education
+tags: [adaptive-learning, knowledge-tracing, bayesian, tutoring, RL, curriculum]
+
+api:
+  reset:
+    signature: "reset(seed: Optional[int]) -> TutorObservation"
+    description: >
+      Resets the student simulator and returns the initial observation.
+      Optionally accepts a seed for reproducibility.
+  step:
+    signature: "step(action: TutorAction) -> StepResult"
+    description: >
+      Presents a question of a given concept and difficulty to the student.
+      Returns observation, reward, done flag, and info dict.
+  state:
+    signature: "state() -> EpisodeInfo"
+    description: >
+      Returns full episode metadata including steps remaining, cumulative reward,
+      and (in eval_mode) the true mastery snapshot.
+
+action_space:
+  type: discrete_composite
+  fields:
+    concept:
+      type: categorical
+      values:
+        - algebra_basics
+        - linear_equations
+        - quadratic_equations
+        - functions
+        - trigonometry
+        - probability
+        - statistics
+        - calculus_intro
+        - geometry
+        - number_theory
+    difficulty:
+      type: categorical
+      values: [easy, medium, hard]
+    hint_given:
+      type: boolean
+      description: "Give a hint before the question (costs 0.05 reward)"
+
+observation_space:
+  type: dict
+  fields:
+    concept_success_rates:
+      type: float
+      shape: [10]
+      range: [0.0, 1.0]
+      description: Per-concept success rate (observable proxy for mastery)
+    concept_attempt_counts:
+      type: int
+      shape: [10]
+      description: Total attempts per concept this episode
+    concept_streaks:
+      type: int
+      shape: [10]
+      description: Current correct answer streak per concept
+    prerequisite_readiness:
+      type: float
+      shape: [10]
+      range: [0.0, 1.0]
+      description: Average mastery of prerequisites per concept
+    engagement:
+      type: float
+      shape: [1]
+      range: [0.0, 1.0]
+      description: Student engagement level (drops if difficulty mismatch)
+    fatigue:
+      type: float
+      shape: [1]
+      range: [0.0, 1.0]
+      description: Accumulated student fatigue (increases per step)
+    step_count:
+      type: int
+      shape: [1]
+      description: Number of steps taken this episode
+    last_correct:
+      type: bool
+      description: Whether the last answer was correct
+    last_concept:
+      type: str
+      description: The concept presented in the last step
+    last_difficulty:
+      type: str
+      description: The difficulty used in the last step
+
+reward:
+  range: [0.0, 1.0]
+  type: dense
+  components:
+    mastery_gain:
+      weight: 2.0
+      description: Change in true mastery for the selected concept (target concepts only)
+    engagement:
+      weight: 0.1
+      description: Reward for maintaining student engagement
+    zpd_bonus:
+      weight: 0.1
+      description: Zone of Proximal Development alignment bonus
+    prereq_bonus:
+      weight: 0.05
+      description: Bonus when prerequisites are adequately mastered
+    correct_answer:
+      weight: 0.15
+      description: Base reward when student answers correctly
+    fatigue_penalty:
+      weight: -0.05
+      description: Penalty proportional to accumulated fatigue
+    hint_penalty:
+      weight: -0.05
+      description: Penalty for giving hints
+
+tasks:
+  - id: single_concept_mastery
+    difficulty: easy
+    max_steps: 20
+    description: >
+      Bring algebra_basics from initial mastery to ≥0.75 within 20 steps.
+    target_concepts: [algebra_basics]
+    mastery_threshold: 0.75
+    score_fn: single_concept
+    score_range: [0.0, 1.0]
+
+  - id: multi_concept_curriculum
+    difficulty: medium
+    max_steps: 50
+    description: >
+      Bring 5 foundational concepts to ≥0.70 mastery within 50 steps
+      while keeping student engagement above 0.5.
+    target_concepts:
+      - algebra_basics
+      - linear_equations
+      - functions
+      - probability
+      - geometry
+    mastery_threshold: 0.70
+    score_fn: multi_concept
+    score_range: [0.0, 1.0]
+
+  - id: exam_prep_sprint
+    difficulty: hard
+    max_steps: 80
+    description: >
+      Maximise predicted exam score across all 10 concepts within 80 steps,
+      respecting prerequisite order and keeping fatigue below 0.8.
+    target_concepts: all
+    mastery_threshold: 0.65
+    score_fn: exam_prep
+    score_range: [0.0, 1.0]
+
+student_model:
+  type: Bayesian Knowledge Tracing (BKT)
+  parameters_per_concept:
+    - p_init: Initial mastery probability
+    - p_learn: Probability of learning after a question
+    - p_forget: Probability of forgetting between steps
+    - p_slip: Probability of answering wrong despite mastery
+    - p_guess: Probability of answering correctly without mastery
+  hidden: true
+  observable_proxy: concept_success_rates
+
+prerequisites:
+  algebra_basics: []
+  linear_equations: [algebra_basics]
+  quadratic_equations: [algebra_basics, linear_equations]
+  functions: [algebra_basics, linear_equations]
+  trigonometry: [functions, geometry]
+  probability: [algebra_basics]
+  statistics: [algebra_basics, probability]
+  calculus_intro: [functions, trigonometry]
+  geometry: [algebra_basics]
+  number_theory: [algebra_basics]
+
+termination:
+  conditions:
+    - max_steps_reached: "step_count >= max_steps"
+    - engagement_collapse: "engagement < 0.15"
+
+baseline_scores:
+  random_agent:
+    single_concept_mastery:   0.889
+    multi_concept_curriculum: 0.913
+    exam_prep_sprint:         0.535
+  heuristic_agent:
+    single_concept_mastery:   0.943
+    multi_concept_curriculum: 0.957
+    exam_prep_sprint:         0.626
+  greedy_mastery_agent:
+    single_concept_mastery:   0.995
+    multi_concept_curriculum: 0.960
+    exam_prep_sprint:         0.605
+
+deployment:
+  platform: Hugging Face Spaces
+  framework: Docker
+  python: "3.11"
+  entry_point: app.py
+
+license: MIT
+authors:
+  - name: "ccsas"
+    affiliation: "VIT-AP University"
+citation: >
+  AdaptiveTutor-v1: A Real-World Bayesian Knowledge Tracing Environment
+  for Adaptive Curriculum Learning. OpenEnv Hackathon 2025.
