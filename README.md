@@ -299,4 +299,4 @@ results = run_all_graders(my_agent, n_episodes=10)
 
 ## 📜 License
 
-MIT © VIT-AP University
+MIT
