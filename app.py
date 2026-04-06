@@ -77,7 +77,9 @@ def root():
 
 
 @app.post("/reset", summary="Reset environment, start new episode")
-def reset(req: ResetRequest):
+def reset(req: Optional[ResetRequest] = None):
+    if req is None:
+        req = ResetRequest()
     if req.task_id not in TASK_REGISTRY:
         raise HTTPException(400, f"Unknown task_id: {req.task_id}")
 
