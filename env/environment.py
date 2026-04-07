@@ -345,37 +345,38 @@ class AdaptiveTutorEnv:
         return False
 
     def _compute_task_score(self) -> float:
-        """Final task score [0,1] used by grader."""
+        """Final task score strictly in (0.0, 1.0) exclusive as required by OpenEnv spec."""
         fn = self.task_cfg["score_fn"]
         target    = self.task_cfg["target_concepts"]
         threshold = self.task_cfg["mastery_threshold"]
         mastery   = self._sim.state.mastery
 
         if fn == "single_concept":
-            return float(np.clip(mastery[target[0]] / threshold, 0.0, 1.0))
+            raw = float(np.clip(mastery[target[0]] / threshold, 0.0, 1.0))
 
         elif fn == "multi_concept":
             scores = [
                 np.clip(mastery[c] / threshold, 0.0, 1.0) for c in target
             ]
             mastery_score = float(np.mean(scores))
-            # Engagement multiplier
             eng_mult = np.clip(self._sim.state.engagement / 0.5, 0.5, 1.0)
-            return float(mastery_score * eng_mult)
+            raw = float(mastery_score * eng_mult)
 
         elif fn == "exam_prep":
             scores = [
                 np.clip(mastery[c] / threshold, 0.0, 1.0) for c in target
             ]
             mastery_score = float(np.mean(scores))
-            # Efficiency: bonus for finishing under budget
             steps_used = self._step_count / self.task_cfg["max_steps"]
             efficiency = 1.0 - 0.2 * steps_used
-            # Fatigue penalty
             fatigue_penalty = self._sim.state.fatigue * 0.15
-            return float(np.clip(mastery_score * efficiency - fatigue_penalty, 0.0, 1.0))
+            raw = float(np.clip(mastery_score * efficiency - fatigue_penalty, 0.0, 1.0))
 
-        return 0.0
+        else:
+            raw = 0.001
+
+        # Strictly between 0 and 1 (exclusive) as required by OpenEnv spec
+        return float(np.clip(raw, 0.001, 0.999))
 
     # ── Utility ──────────────────────────────────────────
 
